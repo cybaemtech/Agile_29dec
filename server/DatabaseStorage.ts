@@ -1,6 +1,6 @@
 import { eq, and, desc, asc, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
-import { IStorage } from "./storage";
+
 import {
   users,
   teams,
@@ -57,7 +57,7 @@ async function generateExternalId(type: string, projectId: number): Promise<stri
   return `${project.key}-${nextNumber.toString().padStart(3, '0')}`;
 }
 
-export class DatabaseStorage implements IStorage {
+export class DatabaseStorage {
   // User management methods
   async getUser(id: number): Promise<User | undefined> {
     if (!db) return undefined;
@@ -81,14 +81,12 @@ export class DatabaseStorage implements IStorage {
     if (!db) {
       throw new Error('Database not available');
     }
-    const result = await db.insert(users).values({
-      ...insertUser,
-      isActive: true,
-      updatedAt: new Date(),
-    });
-    const insertId = Number(result[0].insertId);
-    const [user] = await db.select().from(users).where(eq(users.id, insertId));
-    return user;
+      const result = await db.insert(users).values({
+        ...insertUser,
+        isActive: true,
+        updatedAt: new Date(),
+      });
+      return result[0];
   }
 
   async getUsers(): Promise<User[]> {
@@ -123,15 +121,12 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Cannot create team: created_by user with id ${insertTeam.createdBy} does not exist.`);
       }
     }
-    const result = await db.insert(teams).values({
-      ...insertTeam,
-      isActive: true,
-      updatedAt: new Date(),
-    });
-    // MySQL: get the inserted ID and fetch the row
-    const insertId = Number(result[0].insertId);
-    const [team] = await db.select().from(teams).where(eq(teams.id, insertId));
-    return team;
+      const result = await db.insert(teams).values({
+        ...insertTeam,
+        isActive: true,
+        updatedAt: new Date(),
+      });
+      return result[0];
   }
 
   async getTeam(id: number): Promise<Team | undefined> {
@@ -193,13 +188,11 @@ export class DatabaseStorage implements IStorage {
     if (!db) {
       throw new Error('Database not available');
     }
-    const result = await db.insert(teamMembers).values({
-      ...insertTeamMember,
-      updatedAt: new Date(),
-    });
-    const insertId = Number(result[0].insertId);
-    const [teamMember] = await db.select().from(teamMembers).where(eq(teamMembers.id, insertId));
-    return teamMember;
+      const result = await db.insert(teamMembers).values({
+        ...insertTeamMember,
+        updatedAt: new Date(),
+      });
+      return result[0];
   }
 
   async getTeamMembers(teamId: number): Promise<TeamMember[]> {
@@ -333,6 +326,7 @@ export class DatabaseStorage implements IStorage {
       externalId,
       createdByName,
       createdByEmail,
+      actualHours: insertWorkItem.actualHours !== undefined && insertWorkItem.actualHours !== null && insertWorkItem.actualHours !== '' ? Number(insertWorkItem.actualHours) : null,
       screenshot: null, // Don't store in screenshot column
       screenshotBlob: insertWorkItem.screenshot || null, // Store in screenshot_blob column
       screenshotPath: insertWorkItem.screenshotPath || null,
@@ -436,10 +430,9 @@ export class DatabaseStorage implements IStorage {
     // If status is DONE, set completedAt
     if (status === "DONE") {
       values.completedAt = now;
-      
-      // If it's a TASK or BUG, fill actualHours with estimate
-      if ((workItem.type === 'TASK' || workItem.type === 'BUG') && workItem.estimate) {
-        values.actualHours = workItem.estimate;
+      // If it's a TASK or BUG, fill actualHours with estimate if not already set
+      if ((workItem.type === 'TASK' || workItem.type === 'BUG') && (!workItem.actualHours || Number(workItem.actualHours) === 0) && workItem.estimate) {
+        values.actualHours = Number(workItem.estimate);
       }
     }
     
@@ -671,26 +664,22 @@ export class DatabaseStorage implements IStorage {
     if (filters.statuses && filters.statuses.length > 0) {
       conditions.push(sql`${workItems.status} IN (${filters.statuses.map(s => `'${s}'`).join(',')})`);
     }
-    
-    if (filters.priorities && filters.priorities.length > 0) {
-      conditions.push(sql`${workItems.priority} IN (${filters.priorities.map(p => `'${p}'`).join(',')})`);
-    }
-    
-    if (filters.assigneeId !== undefined) {
-      if (filters.assigneeId === null) {
-        conditions.push(isNull(workItems.assigneeId));
-      } else {
-        conditions.push(eq(workItems.assigneeId, filters.assigneeId));
-      }
-    }
-    
-    // Build query with proper typing
-    if (conditions.length === 0) {
-      return await db.select().from(workItems).orderBy(desc(workItems.updatedAt));
-    }
-    
-    return await db
-      .select()
+        const result = await db.insert(workItems).values({
+          ...insertWorkItem,
+          externalId,
+          createdByName,
+          createdByEmail,
+          actualHours: insertWorkItem.actualHours !== undefined && insertWorkItem.actualHours !== null && insertWorkItem.actualHours !== '' ? String(Number(insertWorkItem.actualHours)) : null,
+          screenshot: null, // Don't store in screenshot column
+          screenshotBlob: insertWorkItem.screenshot || null, // Store in screenshot_blob column
+          screenshotPath: insertWorkItem.screenshotPath || null,
+          updatedAt: new Date(),
+        });
+        const workItem = result[0];
+        if (workItem.parentId) {
+          await this.calculateHierarchyHours(workItem.parentId);
+        }
+        return workItem;
       .from(workItems)
       .where(and(...conditions))
       .orderBy(desc(workItems.updatedAt));

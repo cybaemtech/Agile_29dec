@@ -440,13 +440,6 @@ function getWorkItem($conn, $workItemId) {
             'createdByUsername' => $item['createdByUsername'] ?? 'unknown',
             'updatedByName' => $item['updatedByName'] ?? 'Unknown User'
         ];
-            // Debug log for bug fields (correct location)
-            error_log("=== GET WORK ITEM DEBUG ===");
-            error_log("WorkItem ID: " . $workItemId);
-            error_log("currentBehavior: " . var_export($workItem['currentBehavior'], true));
-            error_log("expectedBehavior: " . var_export($workItem['expectedBehavior'], true));
-            error_log("bugType: " . var_export($workItem['bugType'], true));
-            error_log("severity: " . var_export($workItem['severity'], true));
         echo json_encode($workItem);
         
     } catch (PDOException $e) {
@@ -578,13 +571,6 @@ function createWorkItem($conn) {
 
         // Double-check uniqueness (in case of race conditions)
         $stmt = $conn->prepare("SELECT id FROM work_items WHERE external_id = ?");
-            // Debug log for bug fields (correct location)
-            error_log("=== GET WORK ITEM DEBUG ===");
-            error_log("WorkItem ID: " . $workItemId);
-            error_log("currentBehavior: " . var_export($workItem['currentBehavior'], true));
-            error_log("expectedBehavior: " . var_export($workItem['expectedBehavior'], true));
-            error_log("bugType: " . var_export($workItem['bugType'], true));
-            error_log("severity: " . var_export($workItem['severity'], true));
         $stmt->execute([$externalId]);
         if ($stmt->fetch()) {
             // If still duplicate, use timestamp-based fallback
@@ -602,13 +588,6 @@ function createWorkItem($conn) {
         $assigneeId = isset($input['assigneeId']) && $input['assigneeId'] > 0 ? (int)$input['assigneeId'] : null;
         $reporterId = isset($input['reporterId']) && $input['reporterId'] > 0 ? (int)$input['reporterId'] : $_SESSION['user_id'];
         $estimate = isset($input['estimate']) && $input['estimate'] !== null && $input['estimate'] !== '' ? (float)$input['estimate'] : null;
-                // Debug log for bug fields
-                error_log("=== GET WORK ITEM DEBUG ===");
-                error_log("WorkItem ID: " . $workItemId);
-                error_log("currentBehavior: " . var_export($workItem['currentBehavior'], true));
-                error_log("expectedBehavior: " . var_export($workItem['expectedBehavior'], true));
-                error_log("bugType: " . var_export($workItem['bugType'], true));
-                error_log("severity: " . var_export($workItem['severity'], true));
         $githubUrl = isset($input['githubUrl']) ? trim($input['githubUrl']) : null;
         $bugType = array_key_exists('bugType', $input) ? trim((string)$input['bugType']) : null;
         $severity = array_key_exists('severity', $input) ? trim((string)$input['severity']) : null;

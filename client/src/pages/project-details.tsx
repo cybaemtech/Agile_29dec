@@ -107,8 +107,8 @@ export default function ProjectDetails() {
   const [showAssignTeamDialog, setShowAssignTeamDialog] = useState(false);
 
   // State for inline editing in backlog view
-  const [editingCell, setEditingCell] = useState<{ itemId: number; field: 'title' | 'status' | 'priority' | 'assignee' } | null>(null);
-  const [editValues, setEditValues] = useState<{ title?: string; status?: string; priority?: string; assignee?: string }>({});
+  const [editingCell, setEditingCell] = useState<{ itemId: number; field: 'title' | 'status' | 'priority' | 'assignee' | 'severity' } | null>(null);
+  const [editValues, setEditValues] = useState<{ title?: string; status?: string; priority?: string; assignee?: string; severity?: string }>({});
 
   // Quick action modal state for creating items under parent work items
   const [quickActionModal, setQuickActionModal] = useState<{
@@ -313,7 +313,7 @@ export default function ProjectDetails() {
 
     // Find all direct child items
     const childItems = allItems.filter(item => item.parentId === parentItem.id);
-    
+
     // Find incomplete children (any child that is not DONE, regardless of type)
     const incompleteChildren = childItems.filter(child => child.status !== 'DONE');
 
@@ -321,7 +321,7 @@ export default function ProjectDetails() {
     // EPIC can only be DONE if all FEATURE children are DONE
     // FEATURE can only be DONE if all STORY children are DONE  
     // STORY can only be DONE if all TASK/BUG children are DONE
-    
+
     return {
       canMark: incompleteChildren.length === 0,
       incompleteChildren
@@ -332,7 +332,7 @@ export default function ProjectDetails() {
   const handleStatusChange = (itemId: number, newStatus: string, item: WorkItem) => {
     if (newStatus === 'DONE' && ['EPIC', 'FEATURE', 'STORY'].includes(item.type)) {
       const validation = canMarkParentAsDone(item, workItems || []);
-      
+
       if (!validation.canMark) {
         const childTypesText = validation.incompleteChildren.map(child => child.type.toLowerCase()).join(', ');
         toast({
@@ -649,7 +649,7 @@ export default function ProjectDetails() {
 
       if (response.ok) {
         const result = await response.json();
-        
+
         if (result.user_removed_from_system) {
           toast({
             title: "Success",
@@ -1233,8 +1233,8 @@ export default function ProjectDetails() {
                       <div className="flex justify-between items-center">
                         <h3 className="text-lg font-medium">Epics & Features Timeline</h3>
                         <div className="flex items-center space-x-4">
-                         
-                          
+
+
                         </div>
                       </div>
                     </div>
@@ -1479,6 +1479,31 @@ export default function ProjectDetails() {
                   onItemDelete={(item) => openModal("deleteItem", { workItem: item })}
                   onQuickAction={openQuickAction}
                   onStatusChange={async (itemId, status) => {
+                    // Find the item being updated
+                    const item = workItems?.find(w => w.id === itemId);
+                    if (!item) {
+                      toast({
+                        title: "Error",
+                        description: "Item not found",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+
+                    // If marking as DONE and actualHours is empty, prompt user
+                    if (status === 'DONE' && (!item.actualHours || Number(item.actualHours) === 0)) {
+                      // Add a blinking effect to the Actual Hours field and open edit modal
+                      setEditingCell({ itemId, field: 'actualHours' });
+                      setTimeout(() => {
+                        openModal('edit', { workItem: item });
+                      }, 300);
+                      toast({
+                        title: "Fill Actual Hours",
+                        description: "Please enter Actual Hours before marking as Done.",
+                        variant: "warning"
+                      });
+                      return;
+                    }
                     try {
                       // Find the item being updated
                       const item = workItems?.find(w => w.id === itemId);
@@ -1494,7 +1519,7 @@ export default function ProjectDetails() {
                       // Validate if marking as DONE for parent items
                       if (status === 'DONE' && ['EPIC', 'FEATURE', 'STORY'].includes(item.type)) {
                         const validation = canMarkParentAsDone(item, workItems || []);
-                        
+
                         if (!validation.canMark) {
                           const childTypesText = validation.incompleteChildren.map(child => child.type.toLowerCase()).join(', ');
                           toast({
@@ -1712,6 +1737,7 @@ export default function ProjectDetails() {
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Type</th>
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Status</th>
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Priority</th>
+                        <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Severity</th>
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Assignee</th>
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">EST HR</th>
                         <th className="font-medium px-2 py-1.5 border-r border-neutral-200">Last Updated</th>
@@ -1719,62 +1745,235 @@ export default function ProjectDetails() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.isArray(workItems) && workItems
-                        .filter(item => {
-                          // Filter by type if any type filters are selected
-                          if (filterType.length > 0 && !filterType.includes(item.type)) {
-                            return false;
-                          }
+                      {(() => {
+                        // Severity color map for list view
+                        const severityColors = {
+                          'LOW': 'bg-gray-100 text-gray-600 border-gray-300',
+                          'MEDIUM': 'bg-yellow-100 text-yellow-700 border-yellow-300',
+                          'HIGH': 'bg-orange-100 text-orange-700 border-orange-300',
+                          'CRITICAL': 'bg-red-100 text-red-700 border-red-300'
+                        };
 
-                          // Filter by status if any status filters are selected
-                          if (filterStatus.length > 0 && !filterStatus.includes(item.status)) {
-                            return false;
-                          }
-
-                          // Filter by priority if any priority filters are selected
-                          if (filterPriority.length > 0 && (!item.priority || !filterPriority.includes(item.priority))) {
-                            return false;
-                          }
-
-                          // Filter by assignee if any assignee filters are selected
-                          if (filterAssignee.length > 0) {
-                            // Handle unassigned case
-                            if (filterAssignee.includes(-1) && !item.assigneeId) {
-                              return true;
+                        return Array.isArray(workItems) && workItems
+                          .filter(item => {
+                            // Filter by type if any type filters are selected
+                            if (filterType.length > 0 && !filterType.includes(item.type)) {
+                              return false;
                             }
-                            // Handle assigned case
-                            if (item.assigneeId && filterAssignee.includes(item.assigneeId)) {
-                              return true;
-                            }
-                            // If filter is active but item doesn't match, exclude it
-                            return false;
-                          }
 
-                          return true;
-                        })
-                        .map(item => (
-                          <tr key={item.id} className="border-b border-neutral-200 hover:bg-neutral-50 text-xs">
-                            <td className="px-2 py-1.5 border-r border-neutral-200">{item.externalId}</td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              <div className="flex items-center justify-between">
-                                <span
-                                  className={`${currentUser?.role === 'ADMIN' ||
-                                    currentUser?.role === 'SCRUM_MASTER' ||
-                                    item.reporterId === currentUser?.id ||
-                                    item.assigneeId === currentUser?.id
-                                    ? 'cursor-pointer hover:text-primary hover:underline'
-                                    : 'cursor-default'
-                                    }`}
-                                  onClick={() => {
-                                    if (canUserEditWorkItem(item, currentUser, workItems || [])) {
-                                      openModal("editItem", { workItem: item });
+                            // Filter by status if any status filters are selected
+                            if (filterStatus.length > 0 && !filterStatus.includes(item.status)) {
+                              return false;
+                            }
+
+                            // Filter by priority if any priority filters are selected
+                            if (filterPriority.length > 0 && (!item.priority || !filterPriority.includes(item.priority))) {
+                              return false;
+                            }
+
+                            // Filter by assignee if any assignee filters are selected
+                            if (filterAssignee.length > 0) {
+                              // Handle unassigned case
+                              if (filterAssignee.includes(-1) && !item.assigneeId) {
+                                return true;
+                              }
+                              // Handle assigned case
+                              if (item.assigneeId && filterAssignee.includes(item.assigneeId)) {
+                                return true;
+                              }
+                              // If filter is active but item doesn't match, exclude it
+                              return false;
+                            }
+
+                            return true;
+                          })
+                          .map(item => (
+                            <tr key={item.id} className="border-b border-neutral-200 hover:bg-neutral-50 text-xs">
+                              <td className="px-2 py-1.5 border-r border-neutral-200">{item.externalId}</td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                <div className="flex items-center justify-between">
+                                  <span
+                                    className={`${currentUser?.role === 'ADMIN' ||
+                                      currentUser?.role === 'SCRUM_MASTER' ||
+                                      item.reporterId === currentUser?.id ||
+                                      item.assigneeId === currentUser?.id
+                                      ? 'cursor-pointer hover:text-primary hover:underline'
+                                      : 'cursor-default'
+                                      }`}
+                                    onClick={() => {
+                                      if (canUserEditWorkItem(item, currentUser, workItems || [])) {
+                                        openModal("editItem", { workItem: item });
+                                      }
+                                    }}
+                                    title={
+                                      canUserEditWorkItem(item, currentUser, workItems || [])
+                                        ? 'Click to edit'
+                                        : `Created on ${(() => {
+                                          const date = new Date(item.createdAt);
+                                          return date.toLocaleString('en-IN', {
+                                            timeZone: 'Asia/Kolkata',
+                                            month: 'short',
+                                            day: 'numeric',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            hour12: true
+                                          }).replace(/,\s* /, ', ');
+                                        })()}`
                                     }
-                                  }}
-                                  title={
-                                    canUserEditWorkItem(item, currentUser, workItems || [])
-                                      ? 'Click to edit'
-                                      : `Created on ${(() => {
-                                        const date = new Date(item.createdAt);
+                                  >
+                                    <div className="flex flex-col">
+                                      <span className="font-medium text-neutral-900 line-clamp-1">{item.title}</span>
+                                      {item.type === 'EPIC' || item.type === 'FEATURE' || item.type === 'STORY' ? (
+                                        <div className="flex gap-2 text-[10px] text-neutral-500 mt-0.5">
+                                          {item.estimate && (
+                                            <span>Est: <span className="font-medium text-neutral-700">{Number(item.estimate).toFixed(1)}h</span></span>
+                                          )}
+                                          {item.actualHours && (
+                                            <span>Act: <span className="font-medium text-orange-600">{Number(item.actualHours).toFixed(1)}h</span></span>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </span>
+
+                                  {/* Quick action buttons for EPIC items - Add Feature */}
+                                  {item.type === 'EPIC' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
+                                    <div className="flex gap-1 ml-auto">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openQuickAction(item, 'FEATURE');
+                                        }}
+                                        className="w-6 h-6 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded border border-gray-300 transition-colors flex items-center justify-center"
+                                        title="Add Feature under this Epic"
+                                      >
+                                        +F
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Quick action buttons for FEATURE items - Add Story */}
+                                  {item.type === 'FEATURE' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
+                                    <div className="flex gap-1 ml-auto">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openQuickAction(item, 'STORY');
+                                        }}
+                                        className="w-6 h-6 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded border border-green-300 transition-colors flex items-center justify-center"
+                                        title="Add Story under this Feature"
+                                      >
+                                        +S
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Quick action buttons for STORY items in list view */}
+                                  {item.type === 'STORY' && currentUser && (
+                                    <div className="flex gap-1 ml-auto">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openQuickAction(item, 'TASK');
+                                        }}
+                                        className="w-6 h-6 text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 rounded border border-orange-300 transition-colors flex items-center justify-center"
+                                        title="Add Task under this Story"
+                                      >
+                                        +T
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openQuickAction(item, 'BUG');
+                                        }}
+                                        className="w-6 h-6 text-xs bg-red-100 text-red-700 hover:bg-red-200 rounded border border-red-300 transition-colors flex items-center justify-center"
+                                        title="Add Bug under this Story"
+                                      >
+                                        +B
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.type === 'EPIC' ? 'bg-purple-100 text-purple-800' :
+                                  item.type === 'FEATURE' ? 'bg-gray-100 text-gray-800' :
+                                    item.type === 'STORY' ? 'bg-green-100 text-green-800' :
+                                      item.type === 'TASK' ? 'bg-orange-100 text-orange-800' :
+                                        'bg-red-100 text-red-800'
+                                  }`}>
+                                  {item.type}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.status === 'TODO' ? 'bg-neutral-100 text-neutral-800' :
+                                  item.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
+                                    'bg-emerald-100 text-emerald-800'
+                                  }`}>
+                                  {item.status.replace('_', ' ')}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                {item.priority ? (
+                                  <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.priority === 'LOW' ? 'bg-neutral-100 text-neutral-800' :
+                                    item.priority === 'MEDIUM' ? 'bg-gray-100 text-gray-800' :
+                                      item.priority === 'HIGH' ? 'bg-orange-100 text-orange-800' :
+                                        'bg-red-100 text-red-800'
+                                    }`}>
+                                    {item.priority}
+                                  </span>
+                                ) : (
+                                  <span className="text-neutral-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                {item.severity ? (
+                                  <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${severityColors[String(item.severity).toUpperCase() as keyof typeof severityColors] || 'bg-gray-100 text-gray-600 border-gray-300'}`}>
+                                    {String(item.severity).charAt(0).toUpperCase() + String(item.severity).slice(1).toLowerCase()}
+                                  </span>
+                                ) : (
+                                  <span className="text-neutral-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                {item.assigneeId ? (
+                                  <div className="flex items-center">
+                                    <div className="h-4 w-4 rounded-full bg-neutral-200 flex items-center justify-center text-xs mr-1">
+                                      {projectTeamMembers.find(u => u.id === item.assigneeId)?.fullName.substring(0, 1) || "?"}
+                                    </div>
+                                    <span className="text-xs truncate max-w-[100px]">
+                                      {projectTeamMembers.find(u => u.id === item.assigneeId)?.fullName || "Unknown"}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-neutral-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                <span className="text-xs text-neutral-600 text-center">
+                                  {item.estimate ? `${Number(item.estimate).toFixed(1)}h` : '-'}
+                                  {item.actualHours && (
+                                    <div className="text-[10px] text-orange-600 font-medium">
+                                      Act: {Number(item.actualHours).toFixed(1)}h
+                                    </div>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-neutral-200">
+                                {(item.updatedBy || item.updatedByName) && item.updatedAt ? (
+                                  <div className="flex flex-col">
+                                    <div className="flex items-center">
+                                      <div className="h-4 w-4 rounded-full bg-green-200 flex items-center justify-center text-xs mr-1">
+                                        {(projectTeamMembers.find(u => u.id === item.updatedBy)?.fullName || item.updatedByName || "Unknown").substring(0, 1)}
+                                      </div>
+                                      <span className="text-xs truncate max-w-[100px]">
+                                        {projectTeamMembers.find(u => u.id === item.updatedBy)?.fullName || item.updatedByName || "Unknown"}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-neutral-400 ml-5">
+                                      {(() => {
+                                        const date = new Date(item.updatedAt);
                                         return date.toLocaleString('en-IN', {
                                           timeZone: 'Asia/Kolkata',
                                           month: 'short',
@@ -1783,151 +1982,12 @@ export default function ProjectDetails() {
                                           hour: '2-digit',
                                           minute: '2-digit',
                                           hour12: true
-                                        }).replace(/,\s* /, ', ');
-                                      })()}`
-                                  }
-                                >
-                              <div className="flex flex-col">
-                                <span className="font-medium text-neutral-900 line-clamp-1">{item.title}</span>
-                                {item.type === 'EPIC' || item.type === 'FEATURE' || item.type === 'STORY' ? (
-                                  <div className="flex gap-2 text-[10px] text-neutral-500 mt-0.5">
-                                    {item.estimate && (
-                                      <span>Est: <span className="font-medium text-neutral-700">{Number(item.estimate).toFixed(1)}h</span></span>
-                                    )}
-                                    {item.actualHours && (
-                                      <span>Act: <span className="font-medium text-orange-600">{Number(item.actualHours).toFixed(1)}h</span></span>
-                                    )}
-                                  </div>
-                                ) : null}
-                              </div>
-                                </span>
-                                
-                                {/* Quick action buttons for EPIC items - Add Feature */}
-                                {item.type === 'EPIC' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
-                                  <div className="flex gap-1 ml-auto">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openQuickAction(item, 'FEATURE');
-                                      }}
-                                      className="w-6 h-6 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded border border-gray-300 transition-colors flex items-center justify-center"
-                                      title="Add Feature under this Epic"
-                                    >
-                                      +F
-                                    </button>
-                                  </div>
-                                )}
-                                
-                                {/* Quick action buttons for FEATURE items - Add Story */}
-                                {item.type === 'FEATURE' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
-                                  <div className="flex gap-1 ml-auto">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openQuickAction(item, 'STORY');
-                                      }}
-                                      className="w-6 h-6 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded border border-green-300 transition-colors flex items-center justify-center"
-                                      title="Add Story under this Feature"
-                                    >
-                                      +S
-                                    </button>
-                                  </div>
-                                )}
-                                
-                                {/* Quick action buttons for STORY items in list view */}
-                                {item.type === 'STORY' && currentUser && (
-                                  <div className="flex gap-1 ml-auto">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openQuickAction(item, 'TASK');
-                                      }}
-                                      className="w-6 h-6 text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 rounded border border-orange-300 transition-colors flex items-center justify-center"
-                                      title="Add Task under this Story"
-                                    >
-                                      +T
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openQuickAction(item, 'BUG');
-                                      }}
-                                      className="w-6 h-6 text-xs bg-red-100 text-red-700 hover:bg-red-200 rounded border border-red-300 transition-colors flex items-center justify-center"
-                                      title="Add Bug under this Story"
-                                    >
-                                      +B
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.type === 'EPIC' ? 'bg-purple-100 text-purple-800' :
-                                item.type === 'FEATURE' ? 'bg-gray-100 text-gray-800' :
-                                  item.type === 'STORY' ? 'bg-green-100 text-green-800' :
-                                    item.type === 'TASK' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-red-100 text-red-800'
-                                }`}>
-                                {item.type}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.status === 'TODO' ? 'bg-neutral-100 text-neutral-800' :
-                                item.status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' :
-                                  'bg-emerald-100 text-emerald-800'
-                                }`}>
-                                {item.status.replace('_', ' ')}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              {item.priority ? (
-                                <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs ${item.priority === 'LOW' ? 'bg-neutral-100 text-neutral-800' :
-                                  item.priority === 'MEDIUM' ? 'bg-gray-100 text-gray-800' :
-                                    item.priority === 'HIGH' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-red-100 text-red-800'
-                                  }`}>
-                                  {item.priority}
-                                </span>
-                              ) : (
-                                <span className="text-neutral-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              {item.assigneeId ? (
-                                <div className="flex items-center">
-                                  <div className="h-4 w-4 rounded-full bg-neutral-200 flex items-center justify-center text-xs mr-1">
-                                    {projectTeamMembers.find(u => u.id === item.assigneeId)?.fullName.substring(0, 1) || "?"}
-                                  </div>
-                                  <span className="text-xs truncate max-w-[100px]">
-                                    {projectTeamMembers.find(u => u.id === item.assigneeId)?.fullName || "Unknown"}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-neutral-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              <span className="text-xs text-neutral-600 text-center">
-                                {item.estimate ? `${Number(item.estimate).toFixed(1)}h` : '-'}
-                                {item.actualHours && (
-                                  <div className="text-[10px] text-orange-600 font-medium">
-                                    Act: {Number(item.actualHours).toFixed(1)}h
-                                  </div>
-                                )}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-neutral-200">
-                              {(item.updatedBy || item.updatedByName) && item.updatedAt ? (
-                                <div className="flex flex-col">
-                                  <div className="flex items-center">
-                                    <div className="h-4 w-4 rounded-full bg-green-200 flex items-center justify-center text-xs mr-1">
-                                      {(projectTeamMembers.find(u => u.id === item.updatedBy)?.fullName || item.updatedByName || "Unknown").substring(0, 1)}
-                                    </div>
-                                    <span className="text-xs truncate max-w-[100px]">
-                                      {projectTeamMembers.find(u => u.id === item.updatedBy)?.fullName || item.updatedByName || "Unknown"}
+                                        }).replace(/,\s*/, ', ');
+                                      })()}
                                     </span>
                                   </div>
-                                  <span className="text-xs text-neutral-400 ml-5">
+                                ) : item.updatedAt ? (
+                                  <span className="text-xs text-neutral-600">
                                     {(() => {
                                       const date = new Date(item.updatedAt);
                                       return date.toLocaleString('en-IN', {
@@ -1941,51 +2001,36 @@ export default function ProjectDetails() {
                                       }).replace(/,\s*/, ', ');
                                     })()}
                                   </span>
-                                </div>
-                              ) : item.updatedAt ? (
-                                <span className="text-xs text-neutral-600">
-                                  {(() => {
-                                    const date = new Date(item.updatedAt);
-                                    return date.toLocaleString('en-IN', {
-                                      timeZone: 'Asia/Kolkata',
-                                      month: 'short',
-                                      day: 'numeric',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      hour12: true
-                                    }).replace(/,\s*/, ', ');
-                                  })()}
-                                </span>
-                              ) : (
-                                <span className="text-neutral-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <div className="flex space-x-1">
-                                {/* Check if user can edit this item */}
-                                {canUserEditWorkItem(item, currentUser, workItems || []) ? (
-                                  <>
-                                    {/* Delete button - Only ADMIN and SCRUM_MASTER */}
-                                    {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SCRUM_MASTER') && (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-5 w-5 p-0 text-red-500"
-                                        onClick={() => openModal("deleteItem", { workItem: item })}
-                                        title="Delete item (Admin/Scrum Master only)"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </Button>
-                                    )}
-                                  </>
                                 ) : (
-                                  <span className="text-xs text-neutral-400">No access</span>
+                                  <span className="text-neutral-400 text-xs">-</span>
                                 )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <div className="flex space-x-1">
+                                  {/* Check if user can edit this item */}
+                                  {canUserEditWorkItem(item, currentUser, workItems || []) ? (
+                                    <>
+                                      {/* Delete button - Only ADMIN and SCRUM_MASTER */}
+                                      {(currentUser?.role === 'ADMIN' || currentUser?.role === 'SCRUM_MASTER') && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-5 w-5 p-0 text-red-500"
+                                          onClick={() => openModal("deleteItem", { workItem: item })}
+                                          title="Delete item (Admin/Scrum Master only)"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-neutral-400">No access</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ));
+                      })()}
                       {(!Array.isArray(workItems) || workItems.length === 0) && (
                         <tr>
                           <td colSpan={9} className="px-2 py-4 text-center text-neutral-500 text-xs">
@@ -2018,6 +2063,15 @@ export default function ProjectDetails() {
                         </th>
                         <th className="px-2 py-1 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider w-18">
                           Priority
+                        </th>
+                        <th className="px-2 py-1 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider w-18">
+                          Severity
+                        </th>
+                        <th className="px-2 py-1 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider w-18">
+                          Est.Hr
+                        </th>
+                        <th className="px-2 py-1 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider w-18">
+                          Actual Hrs
                         </th>
                         <th className="px-2 py-1 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider w-24">
                           Assignee
@@ -2056,14 +2110,22 @@ export default function ProjectDetails() {
                           'CRITICAL': 'bg-red-100 text-red-700 border-red-300'
                         };
 
+                        // Severity color map
+                        const severityColors = {
+                          'LOW': 'bg-gray-100 text-gray-600 border-gray-300',
+                          'MEDIUM': 'bg-yellow-100 text-yellow-700 border-yellow-300',
+                          'HIGH': 'bg-orange-100 text-orange-700 border-orange-300',
+                          'CRITICAL': 'bg-red-100 text-red-700 border-red-300'
+                        };
+
                         return (
-                          <tr 
-                            key={item.id} 
+                          <tr
+                            key={item.id}
                             className="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
                             onClick={(e) => {
                               // Only handle row click if not clicking on interactive elements
-                              if (e.target === e.currentTarget || 
-                                  (e.target as HTMLElement).closest('.row-clickable')) {
+                              if (e.target === e.currentTarget ||
+                                (e.target as HTMLElement).closest('.row-clickable')) {
                                 if (canUserEditWorkItem(item, currentUser, workItems || [])) {
                                   // For row clicks, start inline editing of title
                                   startInlineEdit(item.id, 'title', item.title);
@@ -2138,21 +2200,21 @@ export default function ProjectDetails() {
                                         }}
                                         title={canUserEditWorkItem(item, currentUser, workItems || []) ? 'Click title text to open edit modal' : `${item.type}: ${item.title}`}
                                       >
-                                    <div className="flex flex-col">
-                                <span className="font-medium text-neutral-900 line-clamp-1">{item.title}</span>
-                                {item.type === 'EPIC' || item.type === 'FEATURE' || item.type === 'STORY' ? (
-                                  <div className="flex gap-2 text-[10px] text-neutral-500 mt-0.5">
-                                    {item.estimate && (
-                                      <span>Est: <span className="font-medium text-neutral-700">{Number(item.estimate).toFixed(1)}h</span></span>
-                                    )}
-                                    {item.actualHours && (
-                                      <span>Act: <span className="font-medium text-orange-600">{Number(item.actualHours).toFixed(1)}h</span></span>
-                                    )}
-                                  </div>
-                                ) : null}
-                              </div>
+                                        <div className="flex flex-col">
+                                          <span className="font-medium text-neutral-900 line-clamp-1">{item.title}</span>
+                                          {item.type === 'EPIC' || item.type === 'FEATURE' || item.type === 'STORY' ? (
+                                            <div className="flex gap-2 text-[10px] text-neutral-500 mt-0.5">
+                                              {item.estimate && (
+                                                <span>Est: <span className="font-medium text-neutral-700">{Number(item.estimate).toFixed(1)}h</span></span>
+                                              )}
+                                              {item.actualHours && (
+                                                <span>Act: <span className="font-medium text-orange-600">{Number(item.actualHours).toFixed(1)}h</span></span>
+                                              )}
+                                            </div>
+                                          ) : null}
+                                        </div>
                                       </div>
-                                      
+
                                       {/* Quick action buttons for EPIC items - Add Feature */}
                                       {item.type === 'EPIC' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
                                         <div className="flex gap-1 ml-auto">
@@ -2168,7 +2230,7 @@ export default function ProjectDetails() {
                                           </button>
                                         </div>
                                       )}
-                                      
+
                                       {/* Quick action buttons for FEATURE items - Add Story */}
                                       {item.type === 'FEATURE' && currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SCRUM_MASTER') && (
                                         <div className="flex gap-1 ml-auto">
@@ -2184,7 +2246,7 @@ export default function ProjectDetails() {
                                           </button>
                                         </div>
                                       )}
-                                      
+
                                       {/* Quick action buttons for STORY items */}
                                       {item.type === 'STORY' && currentUser && (
                                         <div className="flex gap-1 ml-auto">
@@ -2313,6 +2375,77 @@ export default function ProjectDetails() {
                               )}
                             </td>
 
+                            {/* Severity Column */}
+                            <td className="px-2 py-1">
+                              {editingCell?.itemId === item.id && editingCell?.field === 'severity' ? (
+                                <Select
+                                  value={editValues.severity || item.severity || 'LOW'}
+                                  onValueChange={(value) => {
+                                    setEditValues({ ...editValues, severity: value });
+                                    updateWorkItemMutation.mutate({
+                                      itemId: item.id,
+                                      updates: { severity: value }
+                                    });
+                                    cancelInlineEdit();
+                                  }}
+                                  open={true}
+                                  onOpenChange={(open) => {
+                                    if (!open) cancelInlineEdit();
+                                  }}
+                                >
+                                  <SelectTrigger className="h-6 w-24 text-[10px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="LOW">Low</SelectItem>
+                                    <SelectItem value="MEDIUM">Medium</SelectItem>
+                                    <SelectItem value="HIGH">High</SelectItem>
+                                    <SelectItem value="CRITICAL">Critical</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              ) : item.severity ? (
+                                <span
+                                  className={`px-1.5 py-0.5 inline-flex text-[10px] rounded border ${severityColors[String(item.severity).toUpperCase() as keyof typeof severityColors] || 'bg-gray-100 text-gray-600 border-gray-300'} ${canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG' ? 'cursor-pointer hover:ring-2 hover:ring-blue-300' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG') {
+                                      startInlineEdit(item.id, 'severity', item.severity || 'LOW');
+                                    }
+                                  }}
+                                  title={canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG' ? 'Click to edit severity' : ''}
+                                >
+                                  {String(item.severity).charAt(0).toUpperCase() + String(item.severity).slice(1).toLowerCase()}
+                                </span>
+                              ) : (
+                                <span
+                                  className={`text-gray-400 text-[10px] ${canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG' ? 'cursor-pointer hover:text-blue-600' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG') {
+                                      startInlineEdit(item.id, 'severity', 'LOW');
+                                    }
+                                  }}
+                                  title={canUserEditWorkItem(item, currentUser, workItems || []) && item.type === 'BUG' ? 'Click to set severity' : ''}
+                                >
+                                  -
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Est.Hr Column */}
+                            <td className="px-2 py-1">
+                              <span className="text-[10px] text-gray-600">
+                                {item.estimate ? Number(item.estimate).toFixed(1) : '-'}
+                              </span>
+                            </td>
+
+                            {/* Actual Hrs Column */}
+                            <td className="px-2 py-1">
+                              <span className="text-[10px] text-gray-600">
+                                {item.actualHours ? Number(item.actualHours).toFixed(1) : '-'}
+                              </span>
+                            </td>
+
                             {/* Assignee Column */}
                             <td className="px-2 py-1">
                               {editingCell?.itemId === item.id && editingCell?.field === 'assignee' ? (
@@ -2356,7 +2489,7 @@ export default function ProjectDetails() {
                                   </SelectContent>
                                 </Select>
                               ) : item.assigneeId ? (
-                                <div 
+                                <div
                                   className={`flex items-center ${canUserEditWorkItem(item, currentUser, workItems || []) ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 rounded px-1' : ''}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -2374,7 +2507,7 @@ export default function ProjectDetails() {
                                   </span>
                                 </div>
                               ) : (
-                                <span 
+                                <span
                                   className={`text-gray-400 text-[10px] ${canUserEditWorkItem(item, currentUser, workItems || []) ? 'cursor-pointer hover:text-blue-600' : ''}`}
                                   onClick={(e) => {
                                     e.stopPropagation();

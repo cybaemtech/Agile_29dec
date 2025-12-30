@@ -381,7 +381,7 @@ export function CreateItemModal({
         assigneeId: data.assigneeId ? Number(data.assigneeId) : null,
         reporterId: data.reporterId ? Number(data.reporterId) : (projectTeamMembers.length > 0 ? projectTeamMembers[0].id : null),
         estimate: data.estimate ? Number(data.estimate) : null,
-        actualHours: data.actualHours ? Number(data.actualHours) : null,
+        actualHours: data.actualHours !== undefined && data.actualHours !== null && data.actualHours !== '' ? Number(data.actualHours) : null,
         startDate: data.startDate || null,
         endDate: data.endDate || null,
         githubUrl: data.githubUrl?.trim() || null,

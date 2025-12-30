@@ -335,7 +335,7 @@ export function EditItemModal({
         parentId: data.parentId || null,
         assigneeId: data.assigneeId || null,
         estimate: data.estimate || null,
-        actualHours: data.actualHours || null,
+        actualHours: data.actualHours !== undefined && data.actualHours !== null && data.actualHours !== '' ? Number(data.actualHours) : null,
         // Format dates properly - send as ISO strings for database compatibility
         startDate: data.startDate || null,
         endDate: data.endDate || null,
